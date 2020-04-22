@@ -1,4 +1,6 @@
-# kafka-view-composer-example
+# kafka-view-composer-example 
+
+* The project is part of the [article](https://medium.com/@psaw.mora/kafka-stream-processing-composing-views-by-example-de1a8f031940) on using Kafka Stream DSL and Processor API.
 
 ## Instruction To Build
 * Clone the project
