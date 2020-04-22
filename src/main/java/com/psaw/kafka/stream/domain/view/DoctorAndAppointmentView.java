@@ -1,5 +1,6 @@
 package com.psaw.kafka.stream.domain.view;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.psaw.kafka.stream.domain.entity.Appointment;
 import com.psaw.kafka.stream.domain.entity.Doctor;
 import lombok.*;
@@ -25,5 +26,6 @@ public class DoctorAndAppointmentView implements Serializable {
     private String id;
     private Doctor doctor;
     private SortedSet<Appointment> activeAppointments;
+//    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "UTC")
     private Instant createdTime;
 }

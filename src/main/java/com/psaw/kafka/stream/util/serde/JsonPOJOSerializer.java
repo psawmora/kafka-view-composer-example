@@ -3,6 +3,7 @@ package com.psaw.kafka.stream.util.serde;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.kafka.common.errors.SerializationException;
@@ -21,6 +22,7 @@ public class JsonPOJOSerializer<T> implements Serializer<T> {
         this.objectMapper.findAndRegisterModules()
                 .registerModule(new JavaTimeModule())
                 .registerModule(new Jdk8Module())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
                 .enable(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT)
                 .enable(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
     }

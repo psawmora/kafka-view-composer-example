@@ -28,3 +28,36 @@ services:
 
     depends_on:
       - zookeeper
+
+  kafka-processor-and-dsl-app:
+    image: com.psaw.kafka/kafka-processor-and-dsl-diff-project:latest
+    restart: on-failure
+    environment:
+      BOOTSTRAP_SERVERS: 'kafka:9092'
+    depends_on:
+      - kafka
+
+  kafka-rest-proxy:
+    image: confluentinc/cp-kafka-rest:5.1.0
+    hostname: kafka-rest-proxy
+    ports:
+      - 8096:8096
+    environment:
+      KAFKA_REST_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_REST_LISTENERS: http://0.0.0.0:8096/
+      KAFKA_REST_HOST_NAME: kafka-rest-proxy
+      KAFKA_REST_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      - zookeeper
+      - kafka
+
+  kafka-topics-ui:
+    image: landoop/kafka-topics-ui:latest
+    hostname: kafka-topics-ui
+    ports:
+      - 8000:8000
+    environment:
+      KAFKA_REST_PROXY_URL: "http://kafka-rest-proxy:8096/"
+      PROXY: "true"
+    depends_on:
+      - kafka-rest-proxy

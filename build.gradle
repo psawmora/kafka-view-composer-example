@@ -81,6 +81,16 @@ dependencies {
     testImplementation "org.testng:testng:${libraries.testngVersion}"
 }
 
+def dockerImageName = "com.psaw.kafka/kafka-processor-and-dsl-diff-project:latest"
+
+task buildImage(type: Exec) {
+    println dockerImageName
+    dependsOn "build"
+    workingDir "."
+    commandLine "docker", "build", ".", "-t", dockerImageName
+    standardOutput = new ByteArrayOutputStream()
+}
+
 test {
     useTestNG()
 }

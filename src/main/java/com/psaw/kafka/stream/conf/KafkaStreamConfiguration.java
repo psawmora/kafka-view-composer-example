@@ -26,7 +26,7 @@ public class KafkaStreamConfiguration {
     @Bean
     @Qualifier("application-configuration-factory")
     public KafkaStreamConfigurationFactory streamAppConfigurationFactory(
-            @Value("${bootstrap.brokers:127.0.0.1:9092}") String bootstrapServers) {
+            @Value("${kafka.bootstrap.servers:127.0.0.1:9092}") String bootstrapServers) {
         Properties appConfiguration = new Properties();
         appConfiguration.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         appConfiguration.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");

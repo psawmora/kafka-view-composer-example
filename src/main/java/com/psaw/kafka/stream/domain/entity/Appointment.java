@@ -1,5 +1,6 @@
 package com.psaw.kafka.stream.domain.entity;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.*;
 
 import java.io.Serializable;
@@ -24,10 +25,12 @@ public class Appointment implements Serializable, Comparable<Appointment> {
 
     private String id;
     private boolean isCompleted;
+//    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "UTC")
     private Instant appointmentDate;
     private String patientId;
     private String doctorId;
     private String locationDetail;
+//    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "UTC")
     private Instant createdTimestamp;
 
     @Override

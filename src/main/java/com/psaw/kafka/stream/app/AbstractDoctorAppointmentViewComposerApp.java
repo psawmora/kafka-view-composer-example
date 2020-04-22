@@ -1,13 +1,16 @@
 package com.psaw.kafka.stream.app;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.psaw.kafka.stream.app.key.AppointmentKeyWithDoctorId;
 import com.psaw.kafka.stream.conf.KafkaStreamConfigurationFactory;
 import com.psaw.kafka.stream.domain.entity.Appointment;
 import com.psaw.kafka.stream.domain.entity.Doctor;
+import com.psaw.kafka.stream.domain.view.DoctorAndAppointmentView;
 import com.psaw.kafka.stream.util.TopicAndStoreUtil;
 import com.psaw.kafka.stream.util.serde.JsonPOJODeserializer;
 import com.psaw.kafka.stream.util.serde.JsonPOJOSerializer;
 import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.Topology;
 import org.slf4j.Logger;
@@ -33,16 +36,13 @@ public abstract class AbstractDoctorAppointmentViewComposerApp {
 
     protected final Logger logger = LoggerFactory.getLogger(this.getClass());
 
-    @Value("${kafka.bootstrap.servers:127.0.0.1:9092}")
-    private String bootstrapServers;
-
-    protected String appName = "doctor-appointment-view-composer";
+    protected String appName;
 
     protected String appointmentTopic = "domain_entity_appointment";
 
     protected String doctorTopic = "domain_entity_doctor";
 
-    protected String viewOutputTopic = "view_doctor_and_latest_appointment";
+    protected String viewOutputTopic;
 
     protected int appointmentTopicPartitionCount = 5;
 
@@ -67,11 +67,18 @@ public abstract class AbstractDoctorAppointmentViewComposerApp {
     }
 
     protected JsonPOJOSerializer genericSerializer;
+    protected JsonPOJOSerializer<DoctorAndAppointmentView> viewSerializer;
     protected JsonPOJODeserializer<Doctor> doctorDeserializer;
     protected JsonPOJODeserializer<Appointment> appointmentDeserializer;
+    protected JsonPOJODeserializer<AppointmentKeyWithDoctorId> appointmentKeyDeserializer;
+    protected JsonPOJODeserializer<TreeSet<Appointment>> appointmentSetDeserializer;
+    protected JsonPOJODeserializer<DoctorAndAppointmentView> viewDeserializer;
+
     protected Serde<Doctor> doctorValueSerde ;
     protected Serde<Appointment> appointmentValueSerde;
-    protected JsonPOJODeserializer<TreeSet<Appointment>> appointmentSetDeserializer;
+    protected Serde<AppointmentKeyWithDoctorId> appointmentKeySerde;
+    protected Serde<DoctorAndAppointmentView> viewValueSerde;
+
 
     @PostConstruct
     public void init() {
@@ -99,14 +106,18 @@ public abstract class AbstractDoctorAppointmentViewComposerApp {
 
     private void createSerdes(){
         this.genericSerializer = new JsonPOJOSerializer<>();
+        this.viewSerializer = new JsonPOJOSerializer<>();
+
         this.doctorDeserializer = new JsonPOJODeserializer<>(Doctor.class);
         this.appointmentDeserializer = new JsonPOJODeserializer<>(Appointment.class);
-
-        TypeReference<TreeSet<Appointment>> treeSetOfAppointmentType = new TypeReference<TreeSet<Appointment>>(){};
-        this.appointmentSetDeserializer = new JsonPOJODeserializer<>(treeSetOfAppointmentType);
+        this.appointmentKeyDeserializer = new JsonPOJODeserializer<>(AppointmentKeyWithDoctorId.class);
+        this.viewDeserializer = new JsonPOJODeserializer<>(DoctorAndAppointmentView.class);
+        this.appointmentSetDeserializer = new JsonPOJODeserializer<>(new TypeReference<TreeSet<Appointment>>(){});
 
         this.doctorValueSerde = serdeFrom(genericSerializer, doctorDeserializer);
         this.appointmentValueSerde = serdeFrom(genericSerializer, appointmentDeserializer);
+        this.appointmentKeySerde = Serdes.serdeFrom(new JsonPOJOSerializer<>(), appointmentKeyDeserializer);
+        this.viewValueSerde = Serdes.serdeFrom(viewSerializer, viewDeserializer);
     }
 
     protected abstract Topology buildStream();

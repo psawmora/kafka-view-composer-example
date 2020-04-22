@@ -1,5 +1,8 @@
 package com.psaw.kafka.stream.app;
 
+import com.psaw.kafka.stream.app.key.AppointmentKeyWithDoctorId;
+import com.psaw.kafka.stream.app.processor.AppointmentKeyMappingProcessorSupplier;
+import com.psaw.kafka.stream.app.processor.DoctorAndAppointmentViewComposerProcessorSupplier;
 import com.psaw.kafka.stream.conf.KafkaStreamConfigurationFactory;
 import com.psaw.kafka.stream.domain.entity.Appointment;
 import com.psaw.kafka.stream.domain.entity.Doctor;
@@ -23,6 +26,8 @@ import org.springframework.stereotype.Service;
 import java.io.Serializable;
 import java.util.*;
 
+import static com.psaw.kafka.stream.app.processor.AppointmentKeyMappingProcessorSupplier.appointmentKeyModifierProcessor;
+import static com.psaw.kafka.stream.app.processor.DoctorAndAppointmentViewComposerProcessorSupplier.appointmentsAndDoctorViewComposerProcessor;
 import static com.psaw.kafka.stream.util.TopicAndStoreUtil.createTopic;
 import static org.apache.kafka.common.utils.Utils.murmur2;
 import static org.apache.kafka.common.utils.Utils.toPositive;
@@ -40,31 +45,14 @@ public class DoctorPatientViewComposerAppWithProcessorApi extends AbstractDoctor
     public DoctorPatientViewComposerAppWithProcessorApi(
             @Qualifier("application-configuration-factory") KafkaStreamConfigurationFactory configurationFactory) {
         super(configurationFactory);
+        this.appName = "doctor-appointment-view-composer-processor-api";
+        this.viewOutputTopic = "composed_view_doctor_and_latest_appointment_processor_api";
     }
-
-    protected JsonPOJOSerializer<TreeSet<Appointment>> appointmentSetSerializer= new JsonPOJOSerializer<>();
-    protected JsonPOJODeserializer<AppointmentKeyWithDoctorId>
-            appointmentKeyDeserializer = new JsonPOJODeserializer<>(AppointmentKeyWithDoctorId.class);
-    private Serde<AppointmentKeyWithDoctorId>
-            appointmentKeySerde = Serdes.serdeFrom(new JsonPOJOSerializer<>(), appointmentKeyDeserializer);
-
-    protected JsonPOJODeserializer<DoctorAndAppointmentView> viewDeserializer = new JsonPOJODeserializer<>(DoctorAndAppointmentView.class);
-    protected JsonPOJOSerializer<DoctorAndAppointmentView> viewSerializer = new JsonPOJOSerializer<>();
-    private Serde<DoctorAndAppointmentView>
-            viewValueSerde = Serdes.serdeFrom(viewSerializer, viewDeserializer);
 
     @Override
     protected Topology buildStream() {
         String internalTopicName = "internal_appointment_repartitioned";
         createTopic(internalTopicName, doctorTopicPartitionCount, (short)1, appConfiguration);
-
-        final StoreBuilder<KeyValueStore<String, AppointmentKeyWithDoctorId>> tempAppointmentKeyStore =
-                Stores.keyValueStoreBuilder(
-                        inMemoryKeyValueStore("temp_appointment_key_store"), Serdes.String(), appointmentKeySerde);
-
-        final StoreBuilder<KeyValueStore<String, DoctorAndAppointmentView>> doctorAppointmentViewStore =
-                Stores.keyValueStoreBuilder(
-                        inMemoryKeyValueStore("doctor-appointment-view-store"), Serdes.String(), viewValueSerde);
 
         Topology topology = new Topology();
         topology.addSource("external-topic-source:" + appointmentTopic, Serdes.String().deserializer(), appointmentDeserializer, appointmentTopic)
@@ -79,127 +67,27 @@ public class DoctorPatientViewComposerAppWithProcessorApi extends AbstractDoctor
                 .addSource("external-topic-source:" + doctorTopic, Serdes.String().deserializer(), doctorDeserializer, doctorTopic)
                 .addProcessor(
                         "appointments-of-doctor-calculating-processor",
-                        () -> appointmentsAndDoctorViewComposerProcessor("doctor-appointment-view-store"),
+                        () -> appointmentsAndDoctorViewComposerProcessor("doctor-appointment-view-store", maximumAppointmentsPerDoctor),
                         "internal-topic-source:internal_appointment_repartitioned_topic",
                         "external-topic-source:" + doctorTopic)
                 .addSink(
                         "external-topic-sink:" + viewOutputTopic, viewOutputTopic,
                         Serdes.String().serializer(), viewSerializer, "appointments-of-doctor-calculating-processor");
 
-        topology.addStateStore(doctorAppointmentViewStore, "appointments-of-doctor-calculating-processor")
-                .addStateStore(tempAppointmentKeyStore, "appointment-key-modifier-with-doctor-id-processor");
-
+        addStateStores(topology);
         return topology;
     }
 
-    private Processor<Object, Object> appointmentsAndDoctorViewComposerProcessor(String composedViewStoreName){
-        return new Processor<Object, Object>() {
+    private void addStateStores(Topology topology) {
+        final StoreBuilder<KeyValueStore<String, AppointmentKeyWithDoctorId>> tempAppointmentKeyStore =
+                Stores.keyValueStoreBuilder(
+                        inMemoryKeyValueStore("temp_appointment_key_store"), Serdes.String(), appointmentKeySerde);
 
-            private ProcessorContext context;
-            private KeyValueStore<String, DoctorAndAppointmentView> composedViewStore;
+        final StoreBuilder<KeyValueStore<String, DoctorAndAppointmentView>> doctorAppointmentViewStore =
+                Stores.keyValueStoreBuilder(
+                        inMemoryKeyValueStore("doctor-appointment-view-store"), Serdes.String(), viewValueSerde);
 
-            @Override
-            public void init(ProcessorContext context) {
-                this.composedViewStore = (KeyValueStore<String, DoctorAndAppointmentView>) context.getStateStore(composedViewStoreName);
-                this.context = context;
-            }
-
-            @Override
-            public void process(Object key, Object value) {
-                if(value instanceof Appointment) {
-                    updateViewWithAppointment((AppointmentKeyWithDoctorId)key, (Appointment)value);
-                }
-                if(value instanceof Doctor){
-                    updateViewWithDoctor((String) key, (Doctor) value);
-                }
-            }
-
-            private void updateViewWithDoctor(String key, Doctor doctor) {
-                DoctorAndAppointmentView doctorAndAppointmentView = composedViewStore.get(key);
-                if (doctorAndAppointmentView == null) {
-                    doctorAndAppointmentView = new DoctorAndAppointmentView();
-                    doctorAndAppointmentView.setActiveAppointments(new TreeSet<>());
-                }
-                doctorAndAppointmentView.setDoctor(doctor);
-                composedViewStore.put(key, doctorAndAppointmentView);
-            }
-
-            private void updateViewWithAppointment(AppointmentKeyWithDoctorId key, Appointment appointment) {
-                DoctorAndAppointmentView doctorAndAppointmentView = composedViewStore.get(key.getDoctorId());
-                if (doctorAndAppointmentView == null) {
-                    doctorAndAppointmentView = new DoctorAndAppointmentView();
-                    doctorAndAppointmentView.setActiveAppointments(new TreeSet<>());
-                }
-                SortedSet<Appointment> activeAppointments = doctorAndAppointmentView.getActiveAppointments();
-                if (appointment.getAppointmentDate() == null) {
-                    activeAppointments.remove(appointment);
-                } else {
-                    activeAppointments.add(appointment);
-                }
-                if (activeAppointments.size() >= maximumAppointmentsPerDoctor) {
-                    activeAppointments.remove(activeAppointments.last());
-                }
-                doctorAndAppointmentView.setActiveAppointments(activeAppointments);
-                composedViewStore.put(key.getDoctorId(), doctorAndAppointmentView);
-                context.forward(key.getDoctorId(), doctorAndAppointmentView);
-            }
-
-            @Override
-            public void close() {
-
-            }
-        };
-    }
-
-    private Processor<String, Appointment> appointmentKeyModifierProcessor(String storeName){
-        return new Processor<String, Appointment>() {
-
-            private ProcessorContext context;
-            private KeyValueStore<String, AppointmentKeyWithDoctorId> tempStore;
-
-            @Override
-            public void init(ProcessorContext context) {
-                this.tempStore = (KeyValueStore<String, AppointmentKeyWithDoctorId>) context.getStateStore(storeName);
-                this.context = context;
-            }
-
-            @Override
-            public void process(String key, Appointment newAppointment) {
-                if (newAppointment == null) {
-                    handleEntityDeletion(key);
-                } else {
-                    handleEntityUpdate(key, newAppointment);
-                }
-            }
-
-            private void handleEntityUpdate(String key, Appointment newAppointment) {
-                AppointmentKeyWithDoctorId keyWithDoctorId = tempStore.get(key);
-                if (keyWithDoctorId == null) {
-                    keyWithDoctorId = new AppointmentKeyWithDoctorId(newAppointment.getId(), newAppointment.getDoctorId());
-                    tempStore.put(key, keyWithDoctorId);
-                }
-                context.forward(keyWithDoctorId, newAppointment);
-            }
-
-            private void handleEntityDeletion(String key) {
-                AppointmentKeyWithDoctorId keyWithDoctorId = tempStore.delete(key);
-                if (keyWithDoctorId != null) {
-                    context.forward(keyWithDoctorId, Appointment.builder().id(key)); // Delete marker
-                }
-            }
-
-            @Override
-            public void close() {
-
-            }
-        };
-    }
-
-    @NoArgsConstructor
-    @AllArgsConstructor
-    @Getter
-    public static class AppointmentKeyWithDoctorId implements Serializable{
-        String appointmentId;
-        String doctorId;
+        topology.addStateStore(doctorAppointmentViewStore, "appointments-of-doctor-calculating-processor")
+                .addStateStore(tempAppointmentKeyStore, "appointment-key-modifier-with-doctor-id-processor");
     }
 }
